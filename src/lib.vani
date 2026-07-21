@@ -32,8 +32,8 @@
 //     arithmetic does), and 0 must lie in f([a,b]) at the initial bracket.
 //
 // v0.1.0 depends on vani-calculus (diff_central only, for ep_propagate_1var).
-
-use "../vendor/calculus/src/lib.vani";
+// No `use` statement needed: vanic auto-includes every [deps] entry's
+// source before compiling.
 
 struct Interval { lo: f64, hi: f64 }
 
