@@ -1,0 +1,105 @@
+// Composed demo tying together interval arithmetic (N3.1-N3.4) and error
+// propagation (N3.5-N3.6) on one realistic problem: projectile range
+// R(v0, theta) = v0^2 * sin(2*theta) / g, given measured v0 and theta
+// each with some uncertainty.
+//
+//   1. Compute R at the nominal measurements.
+//   2. N3.5: linearized 1-sigma uncertainty on R via central-difference
+//      error propagation (the "how confident are we in R" question).
+//   3. N3.1-N3.2: a RIGOROUS interval enclosure of R given the same
+//      measurement intervals, composed from iv_* ops directly -- a
+//      complementary, non-linearized sanity check on (2): its width
+//      should be the same rough order of magnitude as 2*sigma_R.
+//   4. N3.4: given a target range, rigorously bracket the launch angle
+//      that achieves it, via interval bisection.
+//
+// Run with:  vanic run examples/projectile_range_demo.vani
+
+use "../src/lib.vani";
+
+fn g_const() -> f64 {
+    return 9.81;
+}
+
+// Scalar range formula, single-variable in v0 (theta fixed) -- used by
+// N3.5's single-variable propagation.
+fn range_of_v0(v0: f64) -> f64 {
+    let theta: f64 = f64_pi() / 4.0;
+    return v0 * v0 * sin(2.0 * theta) / g_const();
+}
+
+// Same formula, multivariate form x = [v0, theta] -- used by N3.5's
+// n-var independent propagation.
+fn range_multivar(x: ref Vec<f64>, n: i64) -> f64 {
+    return x[0] * x[0] * sin(2.0 * x[1]) / g_const();
+}
+
+// Interval extension of theta -> R(v0_fixed, theta) - target, used to
+// bracket the launch angle for a target range via iv_bisect_root. v0 and
+// target are baked in as constants (single occurrence of the theta
+// interval throughout -- no dependency-effect overestimation).
+fn iv_range_minus_target(v0_sq_over_g: f64, target: f64, th: Interval) -> Interval {
+    let two_th: Interval = iv_scalar_mul(th, 2.0);
+    let r: Interval = iv_scalar_mul(iv_sin(two_th), v0_sq_over_g);
+    return iv_sub(r, iv_from_point(target));
+}
+
+// iv_bisect_root's f parameter takes only an Interval -- bake this run's
+// v0/target into a specific top-level fn (no closures in vāṇी).
+fn iv_range_minus_35(th: Interval) -> Interval {
+    return iv_range_minus_target(20.0 * 20.0 / 9.81, 35.0, th);
+}
+
+fn main() -> i64 {
+    let v0: f64 = 20.0;
+    let sigma_v0: f64 = 0.5;
+    let theta: f64 = f64_pi() / 4.0;
+    let sigma_theta: f64 = 0.02;
+    let h: f64 = 1.0e-4;
+
+    let r_nominal: f64 = range_of_v0(v0);
+    print "nominal range R (v0=20, theta=pi/4):";
+    print r_nominal;
+
+    // N3.5 -- single-variable propagation: uncertainty on R from v0
+    // alone (theta held fixed/exact).
+    let sigma_r_v0_only: f64 = ep_propagate_1var(range_of_v0, v0, sigma_v0, h);
+    print "1-sigma uncertainty on R from v0 alone (N3.5 single-var):";
+    print sigma_r_v0_only;
+
+    // N3.5 -- linearized uncertainty propagation (both v0 and theta).
+    let x: Vec<f64> = vec(v0, theta);
+    let sigmas: Vec<f64> = vec(sigma_v0, sigma_theta);
+    let sigma_r: f64 = ep_propagate_independent(range_multivar, ref x, ref sigmas, 2, h);
+    print "1-sigma uncertainty on R (N3.5 error propagation):";
+    print sigma_r;
+
+    // N3.1-N3.2 -- rigorous interval enclosure of R over the same
+    // measurement intervals, as a non-linearized cross-check.
+    let iv_v0: Interval = iv_new(v0 - sigma_v0, v0 + sigma_v0);
+    let iv_theta: Interval = iv_new(theta - sigma_theta, theta + sigma_theta);
+    let iv_v0_sq: Interval = iv_pow_i64(iv_v0, 2);
+    let iv_two_theta: Interval = iv_scalar_mul(iv_theta, 2.0);
+    let iv_r: Interval = iv_scalar_mul(iv_mul(iv_v0_sq, iv_sin(iv_two_theta)), 1.0 / g_const());
+    print "rigorous interval enclosure of R over the measurement box [N3.1/N3.2]:";
+    print iv_r.lo;
+    print iv_r.hi;
+    print "enclosure width vs. 2*sigma_R (same rough order of magnitude expected):";
+    print iv_width(iv_r);
+    print 2.0 * sigma_r;
+
+    // N3.4 -- rigorously bracket the launch angle that reaches a target
+    // range of 35m, starting from the bracket [0, pi/4] (range increases
+    // monotonically with theta over that interval).
+    let roots: Vec<Interval> = iv_bisect_root(iv_range_minus_35, 0.0, f64_pi() / 4.0, 1.0e-8, 60);
+    print "launch angle bracket(s) achieving R=35 (N3.4 interval bisection):";
+    print len(ref roots) as i64;
+    let theta_root: Interval = roots[0];
+    print theta_root.lo;
+    print theta_root.hi;
+    // Rigor check: the returned bracket really does enclose a zero of
+    // the target-range residual, not just look numerically close.
+    assert iv_contains(iv_range_minus_35(theta_root), 0.0);
+
+    return 0;
+}

@@ -1,0 +1,54 @@
+// Tests for N3.4: rigorous interval-bisection root-finding.
+// Run with:  vanic test tests/test_rootfinding.vani
+
+use "../src/lib.vani";
+
+fn close(a: f64, b: f64) -> bool {
+    return abs(a - b) < 1.0e-4;
+}
+
+// Interval extension of f(x) = x^2 - 4, composed entirely from iv_* ops --
+// a real interval evaluation, not a point sample. Root at x = 2. 'a'
+// appears once (iv_pow_i64 has a closed-form range, not naive repeated
+// multiplication), so this is dependency-effect-free: a tight enclosure.
+fn iv_x2_minus_4(a: Interval) -> Interval {
+    return iv_sub(iv_pow_i64(a, 2), iv_from_point(4.0));
+}
+
+// Interval extension of f(x) = x^3 - x - 2 (single real root near
+// x = 1.5214). 'a' appears twice (once inside x^3, once as the linear
+// term), which DOES trigger interval arithmetic's classic "dependency
+// problem" -- see the overestimation note on iv_bisect_root. Deliberately
+// used here (rather than a dependency-free function like the one above)
+// to exercise that path: iv_bisect_root must still converge on the real
+// root despite a spurious wide enclosure earlier in the bisection.
+fn iv_cubic(a: Interval) -> Interval {
+    let x3: Interval = iv_pow_i64(a, 3);
+    return iv_sub(iv_sub(x3, a), iv_from_point(2.0));
+}
+
+fn main() -> i64 {
+    let roots1: Vec<Interval> = iv_bisect_root(iv_x2_minus_4, 0.0, 3.0, 1.0e-8, 80);
+    // Dependency-free case: exactly one surviving candidate bracket.
+    assert len(ref roots1) as i64 == 1;
+    let root1: Interval = roots1[0];
+    assert close(root1.lo, 2.0);
+    assert close(root1.hi, 2.0);
+    // Rigor check: the narrowed bracket must still actually contain 0
+    // under the interval extension -- not just be numerically close.
+    assert iv_contains(iv_x2_minus_4(root1), 0.0);
+    assert iv_width(root1) < 1.0e-6;
+
+    let roots2: Vec<Interval> = iv_bisect_root(iv_cubic, 1.0, 2.0, 1.0e-8, 80);
+    // At least one candidate must survive and bracket the real root --
+    // that's the "provably doesn't miss a root" guarantee. Any spurious
+    // dependency-effect candidates get pruned once their own width
+    // shrinks enough to expose the overestimation, so exactly one
+    // survives here too, but the guarantee only requires "at least one".
+    assert len(ref roots2) as i64 >= 1;
+    let root2: Interval = roots2[0];
+    assert close(root2.lo, 1.5214);
+    assert iv_contains(iv_cubic(root2), 0.0);
+
+    return 0;
+}

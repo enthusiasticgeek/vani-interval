@@ -1,0 +1,10 @@
+[package]
+name    = "interval"
+version = "0.1.0"
+entry   = "src/lib.vani"
+authors = "enthusiasticgeek"
+license = "MIT"
+registry = "kosh"
+
+[deps]
+calculus = { path = "./vendor/calculus", version = "^0.3.0" }

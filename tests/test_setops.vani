@@ -1,0 +1,39 @@
+// Tests for N3.3: interval set operations.
+// Run with:  vanic test tests/test_setops.vani
+
+use "../src/lib.vani";
+
+fn close(a: f64, b: f64) -> bool {
+    return abs(a - b) < 1.0e-9;
+}
+
+fn main() -> i64 {
+    let a: Interval = iv_new(1.0, 3.0);
+
+    assert iv_contains(a, 2.0);
+    assert !iv_contains(a, 5.0);
+    assert iv_contains(a, 1.0);
+    assert iv_contains(a, 3.0);
+
+    assert close(iv_width(a), 2.0);
+    assert close(iv_midpoint(a), 2.0);
+
+    // Overlapping intersection.
+    let b: Interval = iv_new(2.0, 5.0);
+    let inter: Interval = iv_intersect(a, b);
+    assert !iv_is_empty(inter);
+    assert close(inter.lo, 2.0);
+    assert close(inter.hi, 3.0);
+
+    // Non-overlapping intersection comes back empty (lo > hi).
+    let c: Interval = iv_new(10.0, 12.0);
+    let empty_inter: Interval = iv_intersect(a, c);
+    assert iv_is_empty(empty_inter);
+
+    // Union hull spans both, including any gap between disjoint intervals.
+    let hull: Interval = iv_union_hull(a, c);
+    assert close(hull.lo, 1.0);
+    assert close(hull.hi, 12.0);
+
+    return 0;
+}

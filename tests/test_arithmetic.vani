@@ -1,0 +1,62 @@
+// Tests for N3.1: Interval struct + core arithmetic.
+// Run with:  vanic test tests/test_arithmetic.vani
+
+use "../src/lib.vani";
+
+fn close(a: f64, b: f64) -> bool {
+    return abs(a - b) < 1.0e-9;
+}
+
+fn main() -> i64 {
+    let a: Interval = iv_new(1.0, 2.0);
+    let b: Interval = iv_new(3.0, 4.0);
+
+    // Addition
+    let s: Interval = iv_add(a, b);
+    assert close(s.lo, 4.0);
+    assert close(s.hi, 6.0);
+
+    // Subtraction: [1,2] - [3,4] = [1-4, 2-3] = [-3,-1]
+    let d: Interval = iv_sub(a, b);
+    assert close(d.lo, 0.0 - 3.0);
+    assert close(d.hi, 0.0 - 1.0);
+
+    // Negation
+    let n: Interval = iv_neg(a);
+    assert close(n.lo, 0.0 - 2.0);
+    assert close(n.hi, 0.0 - 1.0);
+
+    // Multiplication, both positive: [1,2]*[3,4] -> corners 3,4,6,8 -> [3,8]
+    let m: Interval = iv_mul(a, b);
+    assert close(m.lo, 3.0);
+    assert close(m.hi, 8.0);
+
+    // Multiplication, signs mixed: [-2,3]*[-1,2] -> corners 2,-4,-3,6 -> [-4,6]
+    let c: Interval = iv_new(0.0 - 2.0, 3.0);
+    let e: Interval = iv_new(0.0 - 1.0, 2.0);
+    let m2: Interval = iv_mul(c, e);
+    assert close(m2.lo, 0.0 - 4.0);
+    assert close(m2.hi, 6.0);
+
+    // Scalar multiply by a negative flips endpoint order: [1,2]*-3 -> [-6,-3]
+    let sm: Interval = iv_scalar_mul(a, 0.0 - 3.0);
+    assert close(sm.lo, 0.0 - 6.0);
+    assert close(sm.hi, 0.0 - 3.0);
+
+    // Reciprocal: 1/[2,4] = [0.25, 0.5]
+    let r: Interval = iv_reciprocal(iv_new(2.0, 4.0));
+    assert close(r.lo, 0.25);
+    assert close(r.hi, 0.5);
+
+    // Division: [1,2]/[2,4] -> corners 0.25,0.5,0.5,1.0 -> [0.25,1.0]
+    let dv: Interval = iv_div(a, iv_new(2.0, 4.0));
+    assert close(dv.lo, 0.25);
+    assert close(dv.hi, 1.0);
+
+    // iv_from_point is a degenerate zero-width interval.
+    let p: Interval = iv_from_point(5.0);
+    assert close(p.lo, 5.0);
+    assert close(p.hi, 5.0);
+
+    return 0;
+}
