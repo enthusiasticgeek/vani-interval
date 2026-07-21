@@ -34,12 +34,23 @@
 // v0.1.0 depends on vani-calculus (diff_central only, for ep_propagate_1var).
 // No `use` statement needed: vanic auto-includes every [deps] entry's
 // source before compiling.
+//
+// WCET (MAINT-1, added 2026-07-21 -- see kosh-index/ROADMAP.md): 24 of
+// the 34 functions here are genuinely O(1) and get a real #[wcet(cycles=N)]
+// (vanic check's exact reported worst-case, same discipline as
+// #[bounded_stack]) -- interval arithmetic on a 2-field struct is mostly
+// fixed-cost. The rest loop over a runtime count (n, max_iter) or, for
+// _iv_trig_range/iv_sin/iv_cos, have a genuinely-fixed-4-iteration `while`
+// loop the checker can't prove bounded (only `for` loops with const
+// bounds get that treatment) -- documented with a WCET formula comment
+// instead.
 
 struct Interval { lo: f64, hi: f64 }
 
 // ── Private helpers ───────────────────────────────────────────────────────────
 
 #[bounded_stack(bytes = 64)]
+#[wcet(cycles = 18)]
 fn _f64_min(a: f64, b: f64) -> f64 {
     if a < b {
         return a;
@@ -48,6 +59,7 @@ fn _f64_min(a: f64, b: f64) -> f64 {
 }
 
 #[bounded_stack(bytes = 64)]
+#[wcet(cycles = 18)]
 fn _f64_max(a: f64, b: f64) -> f64 {
     if a > b {
         return a;
@@ -59,30 +71,35 @@ fn _f64_max(a: f64, b: f64) -> f64 {
 
 // Construct an interval [lo, hi]. Caller-trust: lo <= hi.
 #[bounded_stack(bytes = 80)]
+#[wcet(cycles = 10)]
 fn iv_new(lo: f64, hi: f64) -> Interval {
     return Interval { lo: lo, hi: hi };
 }
 
 // Degenerate (zero-width) interval representing an exact point x.
 #[bounded_stack(bytes = 72)]
+#[wcet(cycles = 10)]
 fn iv_from_point(x: f64) -> Interval {
     return Interval { lo: x, hi: x };
 }
 
 // Negation: [-hi, -lo].
 #[bounded_stack(bytes = 96)]
+#[wcet(cycles = 10)]
 fn iv_neg(a: Interval) -> Interval {
     return Interval { lo: 0.0 - a.hi, hi: 0.0 - a.lo };
 }
 
 // Addition: [a.lo+b.lo, a.hi+b.hi].
 #[bounded_stack(bytes = 128)]
+#[wcet(cycles = 10)]
 fn iv_add(a: Interval, b: Interval) -> Interval {
     return Interval { lo: a.lo + b.lo, hi: a.hi + b.hi };
 }
 
 // Subtraction: [a.lo-b.hi, a.hi-b.lo] (b's range enters with reversed sign).
 #[bounded_stack(bytes = 128)]
+#[wcet(cycles = 10)]
 fn iv_sub(a: Interval, b: Interval) -> Interval {
     return Interval { lo: a.lo - b.hi, hi: a.hi - b.lo };
 }
@@ -90,6 +107,7 @@ fn iv_sub(a: Interval, b: Interval) -> Interval {
 // Multiplication: min/max over all four lo/hi corner-pair products, since
 // operand signs affect which corner is extremal.
 #[bounded_stack(bytes = 240)]
+#[wcet(cycles = 216)]
 fn iv_mul(a: Interval, b: Interval) -> Interval {
     let p1: f64 = a.lo * b.lo;
     let p2: f64 = a.lo * b.hi;
@@ -103,6 +121,7 @@ fn iv_mul(a: Interval, b: Interval) -> Interval {
 // Scalar multiply: every point of a times s (s can be negative, which flips
 // the endpoint order).
 #[bounded_stack(bytes = 184)]
+#[wcet(cycles = 30)]
 fn iv_scalar_mul(a: Interval, s: f64) -> Interval {
     let p1: f64 = a.lo * s;
     let p2: f64 = a.hi * s;
@@ -111,6 +130,7 @@ fn iv_scalar_mul(a: Interval, s: f64) -> Interval {
 
 // Multiplicative inverse 1/b. Caller-trust: b must not contain 0.
 #[bounded_stack(bytes = 96)]
+#[wcet(cycles = 10)]
 fn iv_reciprocal(b: Interval) -> Interval {
     return Interval { lo: 1.0 / b.hi, hi: 1.0 / b.lo };
 }
@@ -118,6 +138,7 @@ fn iv_reciprocal(b: Interval) -> Interval {
 // Division a/b, via multiply-by-reciprocal. Caller-trust: b must not
 // contain 0 -- see module header.
 #[bounded_stack(bytes = 368)]
+#[wcet(cycles = 243)]
 fn iv_div(a: Interval, b: Interval) -> Interval {
     return iv_mul(a, iv_reciprocal(b));
 }
@@ -129,23 +150,28 @@ fn iv_div(a: Interval, b: Interval) -> Interval {
 
 // Caller-trust: a.lo >= 0.
 #[bounded_stack(bytes = 96)]
+#[wcet(cycles = 10)]
 fn iv_sqrt(a: Interval) -> Interval {
     return Interval { lo: sqrt(a.lo), hi: sqrt(a.hi) };
 }
 
 #[bounded_stack(bytes = 96)]
+#[wcet(cycles = 10)]
 fn iv_exp(a: Interval) -> Interval {
     return Interval { lo: exp(a.lo), hi: exp(a.hi) };
 }
 
 // Caller-trust: a.lo > 0.
 #[bounded_stack(bytes = 96)]
+#[wcet(cycles = 10)]
 fn iv_log(a: Interval) -> Interval {
     return Interval { lo: log(a.lo), hi: log(a.hi) };
 }
 
 // x^n by repeated multiplication, n >= 0 (internal helper -- iv_pow_i64
 // handles the n < 0 case via iv_reciprocal instead of recursing here).
+// NO #[wcet] (MAINT-1): the while loop runs n times, a runtime parameter
+// -- WCET = 20 + n * ~5 cycles.
 #[bounded_stack(bytes = 88)]
 fn _f64_ipow(x: f64, n: i64) -> f64 {
     let result: f64 = 1.0;
@@ -160,7 +186,9 @@ fn _f64_ipow(x: f64, n: i64) -> f64 {
 // Integer power of an interval. Odd n is monotonic over the whole real
 // line (endpoints map straight across); even n needs a sign case-split
 // since x^n folds negative x back to positive, and an interval spanning
-// zero has its minimum AT zero, not at either endpoint.
+// zero has its minimum AT zero, not at either endpoint. NO #[wcet]: calls
+// _f64_ipow twice, itself unbounded (runtime n) -- WCET = 20 + 2 *
+// _f64_ipow's cost.
 #[bounded_stack(bytes = 363)]
 fn iv_pow_i64(a: Interval, n: i64) -> Interval {
     let nn: i64 = n;
@@ -198,7 +226,12 @@ fn iv_pow_i64(a: Interval, n: i64) -> Interval {
 // integer k (crit_offset = pi/2 for sin, 0 for cos), with value (-1)^k.
 // The fixed 4-iteration window (k0-1 .. k0+2) covers any k in range
 // regardless of floor's exact boundary rounding, and keeps the loop bound
-// a compile-time constant rather than a data-dependent one.
+// a compile-time constant rather than a data-dependent one. WCET: fixed
+// cost in reality (the `while j <= 2` loop always runs exactly 4 times),
+// but the checker's WCET pass can't prove that for a `while` loop -- only
+// `for` loops with const bounds get that treatment (same situation as
+// vani-algebra's algebra_cubic_roots_real) -- so this is UNBOUNDED to the
+// checker despite genuinely being O(1).
 #[bounded_stack(bytes = 296)]
 fn _iv_trig_range(lo: f64, hi: f64, val_lo: f64, val_hi: f64, crit_offset: f64) -> Interval {
     let pi: f64 = f64_pi();
@@ -226,7 +259,9 @@ fn _iv_trig_range(lo: f64, hi: f64, val_lo: f64, val_hi: f64, crit_offset: f64) 
 }
 
 // Range of sin over [a.lo, a.hi], rigorous (accounts for the interval
-// spanning a max/min of sin, not just its endpoint values).
+// spanning a max/min of sin, not just its endpoint values). NO #[wcet]:
+// calls _iv_trig_range, itself unbounded to the checker despite being
+// O(1) in reality -- see _iv_trig_range's own comment.
 #[bounded_stack(bytes = 400)]
 fn iv_sin(a: Interval) -> Interval {
     let pi: f64 = f64_pi();
@@ -235,6 +270,7 @@ fn iv_sin(a: Interval) -> Interval {
 
 // Range of cos over [a.lo, a.hi], rigorous (same critical-point handling
 // as iv_sin, offset by pi/2 since cos's extrema sit at multiples of pi).
+// NO #[wcet]: same reason as iv_sin.
 #[bounded_stack(bytes = 392)]
 fn iv_cos(a: Interval) -> Interval {
     return _iv_trig_range(a.lo, a.hi, cos(a.lo), cos(a.hi), 0.0);
@@ -243,16 +279,19 @@ fn iv_cos(a: Interval) -> Interval {
 // ── N3.3 — Interval set operations ────────────────────────────────────────────
 
 #[bounded_stack(bytes = 73)]
+#[wcet(cycles = 23)]
 fn iv_contains(a: Interval, x: f64) -> bool {
     return x >= a.lo && x <= a.hi;
 }
 
 #[bounded_stack(bytes = 72)]
+#[wcet(cycles = 17)]
 fn iv_width(a: Interval) -> f64 {
     return a.hi - a.lo;
 }
 
 #[bounded_stack(bytes = 72)]
+#[wcet(cycles = 20)]
 fn iv_midpoint(a: Interval) -> f64 {
     return (a.lo + a.hi) / 2.0;
 }
@@ -260,6 +299,7 @@ fn iv_midpoint(a: Interval) -> f64 {
 // True if a is empty (an intersect() result with no overlap looks like
 // lo > hi -- this is how callers tell the two cases apart).
 #[bounded_stack(bytes = 65)]
+#[wcet(cycles = 17)]
 fn iv_is_empty(a: Interval) -> bool {
     return a.lo > a.hi;
 }
@@ -268,6 +308,7 @@ fn iv_is_empty(a: Interval) -> bool {
 // overlap -- check with iv_is_empty before trusting the result as a
 // real range.
 #[bounded_stack(bytes = 192)]
+#[wcet(cycles = 10)]
 fn iv_intersect(a: Interval, b: Interval) -> Interval {
     return Interval { lo: _f64_max(a.lo, b.lo), hi: _f64_min(a.hi, b.hi) };
 }
@@ -276,6 +317,7 @@ fn iv_intersect(a: Interval, b: Interval) -> Interval {
 // set union -- if a and b are disjoint this also covers the gap between
 // them, same convention as e.g. a bounding box).
 #[bounded_stack(bytes = 192)]
+#[wcet(cycles = 10)]
 fn iv_union_hull(a: Interval, b: Interval) -> Interval {
     return Interval { lo: _f64_min(a.lo, b.lo), hi: _f64_max(a.hi, b.hi) };
 }
@@ -309,7 +351,9 @@ fn iv_union_hull(a: Interval, b: Interval) -> Interval {
 // bounded_stack: candidates lives on the heap (Vec), so this has no
 // f-dependent stack term the way the old single-bracket version did --
 // own frame + f's bounded_stack bytes per indirect call, same convention
-// as vani-calculus's bisect.
+// as vani-calculus's bisect. NO #[wcet]: the outer while loop runs up to
+// max_iter times (runtime parameter) over a candidates Vec that can also
+// grow -- unbounded regardless of f's own cost.
 fn iv_bisect_root(f: fn(Interval) -> Interval, a: f64, b: f64, tol: f64, max_iter: i64) -> Vec<Interval> {
     let candidates: Vec<Interval> = vec(Interval { lo: a, hi: b });
     let iter: i64 = 0;
@@ -350,6 +394,7 @@ fn iv_bisect_root(f: fn(Interval) -> Interval, a: f64, b: f64, tol: f64, max_ite
 // Single-variable: sigma_f ~= |f'(x)| * sigma_x, f' via vani-calculus's
 // diff_central (central finite difference, step h).
 // bounded_stack = 144 + f's bounded_stack bytes.
+#[wcet(cycles = 114)]
 fn ep_propagate_1var(f: fn(f64) -> f64, x: f64, sigma_x: f64, h: f64) -> f64 {
     let deriv: f64 = diff_central(f(x - h), f(x + h), h);
     return abs(deriv) * sigma_x;
@@ -361,7 +406,9 @@ fn ep_propagate_1var(f: fn(f64) -> f64, x: f64, sigma_x: f64, h: f64) -> f64 {
 // itself a dependency on vani-optimize -- the formula is a handful of
 // lines, the same "not worth a dependency" call vani-vectorcalc made for
 // its own central-difference differential operators.
-// bounded_stack = 224 + f's bounded_stack bytes.
+// bounded_stack = 224 + f's bounded_stack bytes. NO #[wcet]: the while
+// loop runs n times (runtime parameter), each iteration calling f twice
+// indirectly -- WCET = 20 + n * (2 indirect calls + a few ops).
 fn _ep_grad_fd(f: fn(ref Vec<f64>, i64) -> f64, x: ref Vec<f64>, n: i64, h: f64) -> Vec<f64> {
     let xp: Vec<f64> = vec();
     let i0: i64 = 0;
@@ -385,7 +432,9 @@ fn _ep_grad_fd(f: fn(ref Vec<f64>, i64) -> f64, x: ref Vec<f64>, n: i64, h: f64)
 }
 
 // n independent variables: sigma_f = sqrt(sum((df/dxi)^2 sigma_i^2)).
-// bounded_stack = 336 + f's bounded_stack bytes (via _ep_grad_fd).
+// bounded_stack = 336 + f's bounded_stack bytes (via _ep_grad_fd). NO
+// #[wcet]: calls _ep_grad_fd (O(n), unbounded) then a second O(n) loop --
+// WCET = 20 + _ep_grad_fd's cost + n * ~10 cycles.
 fn ep_propagate_independent(f: fn(ref Vec<f64>, i64) -> f64, x: ref Vec<f64>, sigmas: ref Vec<f64>, n: i64, h: f64) -> f64 {
     let g: Vec<f64> = _ep_grad_fd(f, x, n, h);
     let sum_sq: f64 = 0.0;
@@ -400,7 +449,9 @@ fn ep_propagate_independent(f: fn(ref Vec<f64>, i64) -> f64, x: ref Vec<f64>, si
 
 // n variables with covariance: sigma_f = sqrt(g^T Cov g), Cov given flat
 // row-major n×n (matching vani-matrix's own encoding convention).
-// bounded_stack = 344 + f's bounded_stack bytes (via _ep_grad_fd).
+// bounded_stack = 344 + f's bounded_stack bytes (via _ep_grad_fd). NO
+// #[wcet]: calls _ep_grad_fd (O(n)) then a nested i/j loop over the n x n
+// covariance matrix -- WCET = 20 + _ep_grad_fd's cost + O(n^2).
 fn ep_propagate_covariance(f: fn(ref Vec<f64>, i64) -> f64, x: ref Vec<f64>, cov: ref Vec<f64>, n: i64, h: f64) -> f64 {
     let g: Vec<f64> = _ep_grad_fd(f, x, n, h);
     let sum: f64 = 0.0;
@@ -423,11 +474,14 @@ fn ep_propagate_covariance(f: fn(ref Vec<f64>, i64) -> f64, x: ref Vec<f64>, cov
 
 // Sum or difference of two independent quantities: sigma_f = sqrt(sigma_a^2 + sigma_b^2).
 #[bounded_stack(bytes = 56)]
+#[wcet(cycles = 35)]
 fn ep_sum2(sigma_a: f64, sigma_b: f64) -> f64 {
     return sqrt(sigma_a * sigma_a + sigma_b * sigma_b);
 }
 
 // Sum/difference of n independent quantities: sigma_f = sqrt(sum(sigma_i^2)).
+// NO #[wcet] (MAINT-1): the while loop runs n times, a runtime parameter
+// -- WCET = 20 + n * ~10 cycles.
 #[bounded_stack(bytes = 88)]
 fn ep_sum_n(sigmas: ref Vec<f64>, n: i64) -> f64 {
     let sum_sq: f64 = 0.0;
@@ -442,6 +496,7 @@ fn ep_sum_n(sigmas: ref Vec<f64>, n: i64) -> f64 {
 // Product f = a*b: relative errors add in quadrature, then scale back up
 // to an absolute sigma_f.
 #[bounded_stack(bytes = 88)]
+#[wcet(cycles = 58)]
 fn ep_product2(a: f64, sigma_a: f64, b: f64, sigma_b: f64) -> f64 {
     let ra: f64 = sigma_a / a;
     let rb: f64 = sigma_b / b;
@@ -451,6 +506,7 @@ fn ep_product2(a: f64, sigma_a: f64, b: f64, sigma_b: f64) -> f64 {
 // Quotient f = a/b: same relative-error-in-quadrature form as the product
 // case.
 #[bounded_stack(bytes = 88)]
+#[wcet(cycles = 58)]
 fn ep_quotient2(a: f64, sigma_a: f64, b: f64, sigma_b: f64) -> f64 {
     let ra: f64 = sigma_a / a;
     let rb: f64 = sigma_b / b;
