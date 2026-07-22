@@ -396,7 +396,7 @@ fn iv_bisect_root(f: fn(Interval) -> Interval, a: f64, b: f64, tol: f64, max_ite
 // bounded_stack = 144 + f's bounded_stack bytes.
 #[wcet(cycles = 114)]
 fn ep_propagate_1var(f: fn(f64) -> f64, x: f64, sigma_x: f64, h: f64) -> f64 {
-    let deriv: f64 = diff_central(f(x - h), f(x + h), h);
+    let deriv: f64 = calculus::diff_central(f(x - h), f(x + h), h);
     return abs(deriv) * sigma_x;
 }
 
