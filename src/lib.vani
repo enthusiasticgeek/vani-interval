@@ -17,7 +17,7 @@
 //
 // IMPORTANT — do NOT reimplement vāṇी compiler builtins.
 // Already available as builtins (call directly, never redeclare here):
-//   sin cos sqrt exp log abs floor ceil  f64_pi()
+//   sin cos tan atan sinh cosh tanh sqrt exp log abs floor ceil  f64_pi()
 //   push pop len set vec
 //
 // CALLER-TRUST CONVENTIONS (not checked at runtime, matching every other
@@ -85,21 +85,21 @@ fn iv_from_point(x: f64) -> Interval {
 
 // Negation: [-hi, -lo].
 #[bounded_stack(bytes = 96)]
-#[wcet(cycles = 10)]
+#[wcet(cycles = 22)]
 fn iv_neg(a: Interval) -> Interval {
     return Interval { lo: 0.0 - a.hi, hi: 0.0 - a.lo };
 }
 
 // Addition: [a.lo+b.lo, a.hi+b.hi].
 #[bounded_stack(bytes = 128)]
-#[wcet(cycles = 10)]
+#[wcet(cycles = 30)]
 fn iv_add(a: Interval, b: Interval) -> Interval {
     return Interval { lo: a.lo + b.lo, hi: a.hi + b.hi };
 }
 
 // Subtraction: [a.lo-b.hi, a.hi-b.lo] (b's range enters with reversed sign).
 #[bounded_stack(bytes = 128)]
-#[wcet(cycles = 10)]
+#[wcet(cycles = 30)]
 fn iv_sub(a: Interval, b: Interval) -> Interval {
     return Interval { lo: a.lo - b.hi, hi: a.hi - b.lo };
 }
@@ -121,7 +121,7 @@ fn iv_mul(a: Interval, b: Interval) -> Interval {
 // Scalar multiply: every point of a times s (s can be negative, which flips
 // the endpoint order).
 #[bounded_stack(bytes = 184)]
-#[wcet(cycles = 30)]
+#[wcet(cycles = 76)]
 fn iv_scalar_mul(a: Interval, s: f64) -> Interval {
     let p1: f64 = a.lo * s;
     let p2: f64 = a.hi * s;
@@ -130,7 +130,7 @@ fn iv_scalar_mul(a: Interval, s: f64) -> Interval {
 
 // Multiplicative inverse 1/b. Caller-trust: b must not contain 0.
 #[bounded_stack(bytes = 96)]
-#[wcet(cycles = 10)]
+#[wcet(cycles = 22)]
 fn iv_reciprocal(b: Interval) -> Interval {
     return Interval { lo: 1.0 / b.hi, hi: 1.0 / b.lo };
 }
@@ -138,7 +138,7 @@ fn iv_reciprocal(b: Interval) -> Interval {
 // Division a/b, via multiply-by-reciprocal. Caller-trust: b must not
 // contain 0 -- see module header.
 #[bounded_stack(bytes = 368)]
-#[wcet(cycles = 243)]
+#[wcet(cycles = 255)]
 fn iv_div(a: Interval, b: Interval) -> Interval {
     return iv_mul(a, iv_reciprocal(b));
 }
@@ -150,20 +150,20 @@ fn iv_div(a: Interval, b: Interval) -> Interval {
 
 // Caller-trust: a.lo >= 0.
 #[bounded_stack(bytes = 96)]
-#[wcet(cycles = 10)]
+#[wcet(cycles = 56)]
 fn iv_sqrt(a: Interval) -> Interval {
     return Interval { lo: sqrt(a.lo), hi: sqrt(a.hi) };
 }
 
 #[bounded_stack(bytes = 96)]
-#[wcet(cycles = 10)]
+#[wcet(cycles = 76)]
 fn iv_exp(a: Interval) -> Interval {
     return Interval { lo: exp(a.lo), hi: exp(a.hi) };
 }
 
 // Caller-trust: a.lo > 0.
 #[bounded_stack(bytes = 96)]
-#[wcet(cycles = 10)]
+#[wcet(cycles = 76)]
 fn iv_log(a: Interval) -> Interval {
     return Interval { lo: log(a.lo), hi: log(a.hi) };
 }
@@ -276,6 +276,62 @@ fn iv_cos(a: Interval) -> Interval {
     return _iv_trig_range(a.lo, a.hi, cos(a.lo), cos(a.hi), 0.0);
 }
 
+// Range of tan over [a.lo, a.hi]. Unlike sin/cos, tan is monotonic
+// increasing on each branch between its vertical asymptotes at
+// pi/2 + k*pi -- no critical-point search needed, just the endpoints --
+// but ONLY if the interval doesn't straddle an asymptote. Caller-trust:
+// [a.lo, a.hi] lies within a single branch (same discipline as
+// iv_sqrt/iv_log's domain caller-trust above); a straddling interval
+// would have an unbounded true range, which this does not detect.
+#[bounded_stack(bytes = 96)]
+#[wcet(cycles = 116)]
+fn iv_tan(a: Interval) -> Interval {
+    return Interval { lo: tan(a.lo), hi: tan(a.hi) };
+}
+
+// Range of atan over [a.lo, a.hi]. atan is monotonic increasing over the
+// entire real line (no asymptotes, no domain restriction), so this is as
+// simple as iv_sqrt/iv_exp/iv_log.
+#[bounded_stack(bytes = 96)]
+#[wcet(cycles = 116)]
+fn iv_atan(a: Interval) -> Interval {
+    return Interval { lo: atan(a.lo), hi: atan(a.hi) };
+}
+
+// Range of sinh over [a.lo, a.hi]. sinh is monotonic increasing over the
+// entire real line, same shape as iv_atan.
+#[bounded_stack(bytes = 96)]
+#[wcet(cycles = 116)]
+fn iv_sinh(a: Interval) -> Interval {
+    return Interval { lo: sinh(a.lo), hi: sinh(a.hi) };
+}
+
+// Range of tanh over [a.lo, a.hi]. tanh is monotonic increasing over the
+// entire real line, same shape as iv_atan.
+#[bounded_stack(bytes = 96)]
+#[wcet(cycles = 116)]
+fn iv_tanh(a: Interval) -> Interval {
+    return Interval { lo: tanh(a.lo), hi: tanh(a.hi) };
+}
+
+// Range of cosh over [a.lo, a.hi]. cosh is even and U-shaped (minimum
+// 1.0 at x=0), NOT monotonic across zero -- same sign-case-split shape as
+// iv_pow_i64's even-power branch: if the interval doesn't cross zero,
+// cosh is monotonic on that side (increasing for a.lo >= 0, decreasing
+// for a.hi <= 0); if it does cross zero, the minimum is the fixed value
+// cosh(0) = 1.0 and the maximum is whichever endpoint is farther from 0.
+#[bounded_stack(bytes = 224)]
+#[wcet(cycles = 392)]
+fn iv_cosh(a: Interval) -> Interval {
+    if a.lo >= 0.0 {
+        return Interval { lo: cosh(a.lo), hi: cosh(a.hi) };
+    }
+    if a.hi <= 0.0 {
+        return Interval { lo: cosh(a.hi), hi: cosh(a.lo) };
+    }
+    return Interval { lo: 1.0, hi: _f64_max(cosh(a.lo), cosh(a.hi)) };
+}
+
 // ── N3.3 — Interval set operations ────────────────────────────────────────────
 
 #[bounded_stack(bytes = 73)]
@@ -308,7 +364,7 @@ fn iv_is_empty(a: Interval) -> bool {
 // overlap -- check with iv_is_empty before trusting the result as a
 // real range.
 #[bounded_stack(bytes = 192)]
-#[wcet(cycles = 10)]
+#[wcet(cycles = 72)]
 fn iv_intersect(a: Interval, b: Interval) -> Interval {
     return Interval { lo: _f64_max(a.lo, b.lo), hi: _f64_min(a.hi, b.hi) };
 }
@@ -317,7 +373,7 @@ fn iv_intersect(a: Interval, b: Interval) -> Interval {
 // set union -- if a and b are disjoint this also covers the gap between
 // them, same convention as e.g. a bounding box).
 #[bounded_stack(bytes = 192)]
-#[wcet(cycles = 10)]
+#[wcet(cycles = 72)]
 fn iv_union_hull(a: Interval, b: Interval) -> Interval {
     return Interval { lo: _f64_min(a.lo, b.lo), hi: _f64_max(a.hi, b.hi) };
 }

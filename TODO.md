@@ -112,14 +112,44 @@
 
 ---
 
+## v0.1.4 (2026-07-27)
+
+- [x] `iv_tan` -- monotonic increasing within a single branch between
+      asymptotes, so endpoints map straight across like `iv_sqrt`/
+      `iv_exp`/`iv_log`. Caller-trust: `[a.lo, a.hi]` must not straddle
+      an asymptote at `pi/2 + k*pi` (a straddling interval's true range
+      is unbounded, which this does not detect -- documented in the
+      function's own comment, same discipline as the domain caller-trust
+      notes for `iv_sqrt`/`iv_log`).
+- [x] `iv_atan`, `iv_sinh`, `iv_tanh` -- monotonic increasing over the
+      entire real line (no domain restriction, no asymptotes), so these
+      are as simple as `iv_sqrt`/`iv_exp`/`iv_log`.
+- [x] `iv_cosh` -- even, U-shaped (minimum 1.0 at x=0), NOT monotonic
+      across zero. Same sign-case-split shape as `iv_pow_i64`'s
+      even-exponent branch: monotonic on either side of zero, but a
+      zero-spanning interval's minimum is the fixed value `cosh(0)=1.0`,
+      not either endpoint.
+- [x] `tests/test_elementary.vani` extended: `iv_tan` on `[0, pi/4]`;
+      `iv_atan`/`iv_sinh`/`iv_tanh` on a symmetric interval; `iv_cosh`
+      for both-positive, both-negative, and zero-spanning intervals
+      (the last mirroring `iv_pow_i64`'s even-exponent zero-spanning
+      test already in this file).
+- [x] Incidental fix while re-verifying: 11 unrelated functions'
+      `#[wcet(cycles=N)]` values had drifted out of date relative to the
+      current compiler's static estimate (`iv_neg`, `iv_add`, `iv_sub`,
+      `iv_scalar_mul`, `iv_reciprocal`, `iv_div`, `iv_sqrt`, `iv_exp`,
+      `iv_log`, `iv_intersect`, `iv_union_hull`) -- pre-existing,
+      unrelated to the new functions, blocked `vanic check` from passing
+      cleanly until corrected. Same class of drift found and fixed in
+      `vani-sparse`/`vani-geometry` earlier this session -- worth
+      auditing the rest of the ecosystem for the same latent issue.
+
 ## Future
 
 No v0.2.0 is currently planned. Candidates if a concrete need shows up:
-interval versions of `tan`/`atan`/hyperbolic functions (only sin/cos/sqrt/
-exp/log/pow shipped, matching exactly what the roadmap itemized), a real
-interval Newton method for `iv_bisect_root` (would converge faster than
-bisection and can sometimes PROVE uniqueness of a root within a bracket,
-unlike plain bisection -- needs an interval derivative, i.e. an
+a real interval Newton method for `iv_bisect_root` (would converge faster
+than bisection and can sometimes PROVE uniqueness of a root within a
+bracket, unlike plain bisection -- needs an interval derivative, i.e. an
 `fn(Interval) -> Interval` for f' as well as f), and a tighter interval
 extension (e.g. centered/mean-value form) to reduce the dependency-problem
 overestimation documented above and in `iv_bisect_root`'s doc comment.

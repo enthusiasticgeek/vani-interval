@@ -69,5 +69,42 @@ fn main() -> i64 {
     assert close(peak.hi, 1.0);
     assert close(peak.lo, cos(0.5));
 
+    // tan: monotonic increasing within a single branch (no asymptote
+    // crossed), so endpoints map straight across, same as sqrt/exp/log.
+    let tn: Interval = iv_tan(iv_new(0.0, pi / 4.0));
+    assert close(tn.lo, 0.0);
+    assert close(tn.hi, 1.0);
+
+    // atan, sinh, tanh: monotonic increasing over the whole real line.
+    let at: Interval = iv_atan(iv_new(0.0 - 1.0, 1.0));
+    assert close(at.lo, 0.0 - (pi / 4.0));
+    assert close(at.hi, pi / 4.0);
+
+    let sh: Interval = iv_sinh(iv_new(0.0, 1.0));
+    assert close(sh.lo, 0.0);
+    assert close(sh.hi, sinh(1.0));
+
+    let th: Interval = iv_tanh(iv_new(0.0 - 1.0, 1.0));
+    assert close(th.lo, 0.0 - tanh(1.0));
+    assert close(th.hi, tanh(1.0));
+
+    // cosh, both endpoints positive: monotonic increasing on that side.
+    let ch_pos: Interval = iv_cosh(iv_new(1.0, 2.0));
+    assert close(ch_pos.lo, cosh(1.0));
+    assert close(ch_pos.hi, cosh(2.0));
+
+    // cosh, both endpoints negative: monotonic decreasing (magnitude
+    // increases moving away from 0), so [-2,-1] -> [cosh(1), cosh(2)].
+    let ch_neg: Interval = iv_cosh(iv_new(0.0 - 2.0, 0.0 - 1.0));
+    assert close(ch_neg.lo, cosh(1.0));
+    assert close(ch_neg.hi, cosh(2.0));
+
+    // cosh spanning zero: minimum is AT zero (cosh(0)=1), not at either
+    // endpoint -- same shape as iv_pow_i64's even-exponent zero-spanning
+    // case above.
+    let ch_span: Interval = iv_cosh(iv_new(0.0 - 1.0, 2.0));
+    assert close(ch_span.lo, 1.0);
+    assert close(ch_span.hi, cosh(2.0));
+
     return 0;
 }
