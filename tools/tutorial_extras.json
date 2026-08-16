@@ -1,30 +1,150 @@
 {
-  "why_use_this": "Reach for the `iv_*` half when you need a mathematically RIGOROUS guarantee that a computed range genuinely contains the true value -- not a statistical estimate, a provable enclosure, useful for validated numerics or bounding worst-case error accumulation. Reach for the `ep_*` half instead when you want the linearized uncertainty estimate science and engineering actually use day to day (\"if my inputs have this much measurement error, how much error does that propagate into my result?\") -- not rigorous in the interval-arithmetic sense, but the practical answer to a much more common question. The two halves are related but answer different questions: interval arithmetic bounds the worst case, error propagation estimates the typical case. Know going in that naive interval arithmetic has a real, textbook limitation -- the \"dependency problem\" -- where an expression using the same variable more than once (e.g. `x^3 - x`) overestimates its true range, because each occurrence of `x` is treated as independent. Enclosures stay valid (never too small), just looser than optimal; see the README for the full explanation and how `iv_bisect_root` works around it for root-finding specifically."
+  "why_use_this": "Reach for the `iv_*` half when you need a mathematically RIGOROUS guarantee that a computed range genuinely contains the true value -- not a statistical estimate, a provable enclosure, useful for validated numerics or bounding worst-case error accumulation. Reach for the `ep_*` half instead when you want the linearized uncertainty estimate science and engineering actually use day to day (\"if my inputs have this much measurement error, how much error does that propagate into my result?\") -- not rigorous in the interval-arithmetic sense, but the practical answer to a much more common question. The two halves are related but answer different questions: interval arithmetic bounds the worst case, error propagation estimates the typical case. Know going in that naive interval arithmetic has a real, textbook limitation -- the \"dependency problem\" -- where an expression using the same variable more than once (e.g. `x^3 - x`) overestimates its true range, because each occurrence of `x` is treated as independent. Enclosures stay valid (never too small), just looser than optimal; see `iv_pow_i64`'s worked example below for a concrete before/after demonstration of exactly this problem."
   ,
   "math_notes": {
-    "iv_neg": "\\( -[a,b] = [-b,-a] \\).",
-    "iv_add": "\\( [a,b] + [c,d] = [a+c,\\ b+d] \\).",
-    "iv_sub": "\\( [a,b] - [c,d] = [a-d,\\ b-c] \\) -- NOT \\( [a-c,b-d] \\); subtracting an interval means the result's lower bound comes from the smallest-minus-largest combination.",
-    "iv_mul": "\\( [a,b] \\times [c,d] = [\\min(ac,ad,bc,bd),\\ \\max(ac,ad,bc,bd)] \\) -- all four endpoint products must be considered since the sign of each interval isn't fixed.",
-    "iv_reciprocal": "\\( 1/[a,b] = [1/b,\\ 1/a] \\) for an interval not containing 0 (division by an interval containing zero is not a single bounded interval and is out of scope here).",
-    "iv_div": "\\( [a,b] / [c,d] = [a,b] \\times (1/[c,d]) \\) -- computed as a multiplication by the reciprocal (`iv_reciprocal`), inheriting its same not-containing-zero requirement on the divisor.",
-    "iv_sqrt": "\\( \\sqrt{[a,b]} = [\\sqrt{a}, \\sqrt{b}] \\) for \\( a \\ge 0 \\) -- valid because \\( \\sqrt{\\cdot} \\) is monotonically increasing, so it maps an interval's endpoints straight to the result's endpoints.",
-    "iv_exp": "\\( \\exp([a,b]) = [e^a, e^b] \\) -- monotonically increasing, endpoints map directly.",
-    "iv_log": "\\( \\log([a,b]) = [\\log a, \\log b] \\) for \\( a > 0 \\) -- monotonically increasing, endpoints map directly.",
-    "iv_pow_i64": "\\( [a,b]^n \\) for integer \\( n \\), computed via a closed-form endpoint/sign case-split (not repeated `iv_mul(x,x)`, which would hit the dependency problem and overestimate) -- e.g. for even \\( n \\ge 2 \\) with \\( 0 \\in [a,b] \\), the minimum is 0 and the maximum is \\( \\max(a^n,b^n) \\), rather than naively combining endpoint products.",
-    "iv_atan": "\\( \\arctan([a,b]) = [\\arctan a, \\arctan b] \\) -- monotonically increasing everywhere, endpoints map directly, no range-reduction case-split needed (unlike `iv_sin`/`iv_cos`, which aren't globally monotonic).",
-    "iv_sinh": "\\( \\sinh([a,b]) = [\\sinh a, \\sinh b] \\) -- monotonically increasing everywhere.",
-    "iv_tanh": "\\( \\tanh([a,b]) = [\\tanh a, \\tanh b] \\) -- monotonically increasing everywhere.",
-    "iv_width": "\\( b - a \\) for interval \\( [a,b] \\) -- how loose the enclosure is; `iv_bisect_root` narrows candidate brackets until their width drops below the caller's tolerance.",
-    "iv_midpoint": "\\( (a+b)/2 \\) for interval \\( [a,b] \\).",
-    "iv_intersect": "\\( [a,b] \\cap [c,d] = [\\max(a,c),\\ \\min(b,d)] \\) -- empty (see `iv_is_empty`) when \\( \\max(a,c) > \\min(b,d) \\).",
-    "iv_union_hull": "\\( [\\min(a,c),\\ \\max(b,d)] \\) -- the smallest single interval containing both \\( [a,b] \\) and \\( [c,d] \\) (the convex hull of their union, NOT set union -- a genuine gap between the two intervals gets included).",
-    "ep_propagate_1var": "Linearized single-variable error propagation: \\( \\sigma_f \\approx \\left| \\dfrac{df}{dx} \\right| \\sigma_x \\), the first-order Taylor approximation of how an input's uncertainty \\( \\sigma_x \\) propagates through \\( f \\) -- the derivative is estimated via central differences (reusing vani-calculus's `diff_central`), not computed symbolically.",
-    "ep_propagate_independent": "The general multivariate linearized error-propagation formula for independent inputs: \\( \\sigma_f \\approx \\sqrt{\\sum_{i=1}^n \\left(\\dfrac{\\partial f}{\\partial x_i}\\right)^2 \\sigma_{x_i}^2} \\) -- each partial derivative estimated via central finite differences (`_ep_grad_fd`), assuming the inputs' errors are uncorrelated.",
-    "ep_propagate_covariance": "The full multivariate error-propagation formula allowing correlated inputs: \\( \\sigma_f^2 \\approx \\sum_{i=1}^n\\sum_{j=1}^n \\dfrac{\\partial f}{\\partial x_i}\\dfrac{\\partial f}{\\partial x_j}\\, \\Sigma_{ij} \\), where \\( \\Sigma \\) is the input covariance matrix -- reduces exactly to `ep_propagate_independent`'s formula when \\( \\Sigma \\) is diagonal (no correlation between inputs).",
-    "ep_sum2": "\\( \\sigma_{a+b} = \\sqrt{\\sigma_a^2 + \\sigma_b^2} \\) for independent \\( a, b \\) -- the closed-form special case of `ep_propagate_independent` for \\( f(a,b)=a+b\\), since both partial derivatives are exactly 1.",
-    "ep_sum_n": "\\( \\sigma_{\\sum x_i} = \\sqrt{\\sum_i \\sigma_{x_i}^2} \\) -- the n-ary generalization of `ep_sum2`, errors add in quadrature for a sum of independent terms.",
-    "ep_product2": "\\( \\sigma_{ab} \\approx |ab| \\sqrt{\\left(\\sigma_a/a\\right)^2 + \\left(\\sigma_b/b\\right)^2} \\) -- the closed-form special case of `ep_propagate_independent` for \\( f(a,b)=ab \\): RELATIVE errors add in quadrature for a product, unlike absolute errors for a sum.",
-    "ep_quotient2": "\\( \\sigma_{a/b} \\approx |a/b| \\sqrt{\\left(\\sigma_a/a\\right)^2 + \\left(\\sigma_b/b\\right)^2} \\) -- same relative-errors-in-quadrature form as `ep_product2`, since division's partial derivatives have the same relative-error structure as multiplication's."
+    "iv_neg": {
+      "intuition": "Negating a range flips it end-for-end -- what used to be the smallest value (multiplied by \\(-1\\)) becomes the largest, and vice versa.",
+      "formula": "\\[ -[a,b] = [-b,-a] \\]",
+      "example": "\\(-[2,4] = [-4,-2]\\).",
+      "why": "Notice the endpoints SWAP order (\\(-b\\) first, then \\(-a\\)), not just each get negated in place -- \\([-a,-b]\\) with \\(a<b\\) would be backwards (a lower bound bigger than the upper bound), a genuinely invalid interval."
+    },
+    "iv_add": {
+      "intuition": "The widest the sum could possibly be is if BOTH inputs happen to be at their maximum simultaneously; the narrowest is if both are at their minimum -- so the endpoints just add directly, no cross-combinations needed.",
+      "formula": "\\[ [a,b]+[c,d] = [a+c,\\ b+d] \\]",
+      "example": "\\([2,4]+[-1,3] = [2+(-1),\\ 4+3] = [1,7]\\).",
+      "why": "Addition is the simplest interval operation precisely because it's monotonic in BOTH operands in the same direction -- increasing either input can only increase the sum, so checking the extremes (both-min, both-max) is enough; `iv_mul` below needs all four corner combinations precisely because multiplication does NOT have this simple property when signs can vary."
+    },
+    "iv_sub": {
+      "intuition": "To make the DIFFERENCE as large as possible, you want the first interval at its biggest AND the second at its smallest (subtracting a small number loses less); to make the difference as small as possible, the opposite -- so the two intervals' roles cross over compared to addition.",
+      "formula": "\\[ [a,b]-[c,d] = [a-d,\\ b-c] \\]",
+      "example": "\\([2,4]-[-1,3] = [2-3,\\ 4-(-1)] = [-1,\\ 5]\\).",
+      "why": "It's tempting to guess \\([a-c,b-d]\\) by analogy with addition -- but that's WRONG (try it here: \\([2-(-1),4-3]=[3,1]\\), backwards, an invalid interval). The lower bound of a difference always comes from smallest-minus-largest, not smallest-minus-smallest."
+    },
+    "iv_mul": {
+      "intuition": "Unlike addition, multiplication's result isn't simply monotonic in each input independently -- if an interval can be negative OR positive, you genuinely don't know in advance which pairing of endpoints gives the extreme result, so all four corner combinations have to be checked.",
+      "formula": "\\[ [a,b]\\times[c,d] = [\\min(ac,ad,bc,bd),\\ \\max(ac,ad,bc,bd)] \\]",
+      "example": "\\([2,4]\\times[-1,3]\\): the four corner products are \\(2\\times(-1)=-2\\), \\(2\\times3=6\\), \\(4\\times(-1)=-4\\), \\(4\\times3=12\\). Minimum is \\(-4\\), maximum is \\(12\\). Result: \\([-4,12]\\).",
+      "why": "Notice the minimum (\\(-4\\)) came from the SECOND interval's endpoints paired with the FIRST interval's upper bound, not any single obvious \"both-low\" or \"both-high\" pairing -- this is exactly why all four products must be checked rather than guessing which pairing matters, unlike addition's simpler both-min/both-max rule."
+    },
+    "iv_reciprocal": {
+      "intuition": "For a POSITIVE interval, \\(1/x\\) is a decreasing function -- the biggest \\(x\\) gives the smallest \\(1/x\\) and vice versa -- so the endpoints swap order, similar to negation.",
+      "formula": "\\[ 1/[a,b] = [1/b,\\ 1/a] \\quad (0\\notin[a,b]) \\]",
+      "example": "\\(1/[2,4] = [1/4,\\ 1/2] = [0.25,\\,0.5]\\).",
+      "why": "The restriction that the interval must not contain \\(0\\) isn't a minor caveat -- \\(1/x\\) genuinely has no single bounded interval as its range when \\(x\\) crosses zero (it shoots to \\(+\\infty\\) approaching from one side and \\(-\\infty\\) from the other), so this case is deliberately out of scope rather than silently producing a nonsensical answer."
+    },
+    "iv_div": {
+      "intuition": "Rather than deriving a separate division rule from scratch, this reuses multiplication: dividing by an interval is the same as multiplying by its reciprocal.",
+      "formula": "\\[ [a,b]/[c,d] = [a,b]\\times(1/[c,d]) \\]",
+      "example": "\\([2,4]/[1,2]\\): first take the reciprocal, \\(1/[1,2]=[0.5,1]\\) (via `iv_reciprocal`), then multiply: \\([2,4]\\times[0.5,1]\\) -- corner products \\(2\\times0.5=1\\), \\(2\\times1=2\\), \\(4\\times0.5=2\\), \\(4\\times1=4\\), giving \\([1,4]\\).",
+      "why": "Because this composes `iv_reciprocal` and `iv_mul` rather than being a separate implementation, it automatically inherits `iv_reciprocal`'s exact same restriction: the divisor interval must not contain zero."
+    },
+    "iv_sqrt": {
+      "intuition": "Square root never changes the ORDER of values (a bigger input always gives a bigger output), so it's safe to just take the square root of each endpoint directly -- no need to check any other combination.",
+      "formula": "\\[ \\sqrt{[a,b]} = [\\sqrt a,\\sqrt b] \\quad (a\\ge0) \\]",
+      "example": "\\(\\sqrt{[1,4]} = [\\sqrt1,\\sqrt4] = [1,2]\\).",
+      "why": "This \"just apply to both endpoints\" shortcut only works because \\(\\sqrt{\\cdot}\\) is MONOTONIC (order-preserving) -- it's the same reasoning `iv_exp`/`iv_log`/`iv_atan`/`iv_sinh`/`iv_tanh` below all rely on, and exactly the reasoning that does NOT apply to `iv_pow_i64` for even powers (since squaring isn't monotonic across zero) or to `iv_sin`/`iv_cos` (not monotonic at all over a full period)."
+    },
+    "iv_exp": {
+      "intuition": "Same monotonic-function shortcut as `iv_sqrt` -- \\(e^x\\) always increases as \\(x\\) increases, so endpoints map straight across.",
+      "formula": "\\[ \\exp([a,b]) = [e^a,e^b] \\]",
+      "example": "\\(\\exp([0,1]) = [e^0,e^1] = [1,\\,e] \\approx [1,\\,2.718]\\).",
+      "why": "This pairs directly with `iv_log`'s example below -- taking the log of THIS result should recover the original \\([0,1]\\), a useful round-trip check that both functions agree with each other."
+    },
+    "iv_log": {
+      "intuition": "Same monotonic-function shortcut again, for the (inverse) logarithm.",
+      "formula": "\\[ \\log([a,b]) = [\\log a,\\log b] \\quad (a>0) \\]",
+      "example": "\\(\\log([1,\\,e]) = [\\log1,\\log e] = [0,1]\\) -- exactly recovering `iv_exp`'s input interval \\([0,1]\\) from its output \\([1,e]\\), confirming the two functions are genuine inverses of each other on this range.",
+      "why": "Like `iv_reciprocal`, the domain restriction (\\(a>0\\)) isn't optional bookkeeping -- logarithm has no real value at all for non-positive inputs, so an interval touching or crossing zero has no valid log-interval to return."
+    },
+    "iv_pow_i64": {
+      "intuition": "Squaring (or any even power) is NOT monotonic across zero -- values move toward zero as \\(x\\) approaches 0 from either side, then back away -- so `iv_sqrt`-style \"just apply to both endpoints\" would be wrong here. This function instead reasons about the whole interval's shape directly: if zero is included, the minimum possible value is 0 itself (whatever in the interval is closest to zero, squared); the maximum is whichever endpoint is furthest from zero.",
+      "formula": "For even \\(n\\ge2\\) with \\(0\\in[a,b]\\): minimum is \\(0\\), maximum is \\(\\max(a^n,b^n)\\) -- a closed-form case-split, not repeated `iv_mul(x,x)`.",
+      "example": "Square the interval \\([-1,2]\\) (which contains 0). Correct answer via `iv_pow_i64`: minimum \\(0\\) (since some value in \\([-1,2]\\), namely \\(0\\) itself, squares to exactly \\(0\\)), maximum \\(\\max((-1)^2,2^2)=\\max(1,4)=4\\). Result: \\([0,4]\\). Now compare with what NAIVELY calling `iv_mul([-1,2],[-1,2])` (treating the two copies as independent, hitting the dependency problem head-on) would give: corner products \\((-1)(-1)=1\\), \\((-1)(2)=-2\\), \\((2)(-1)=-2\\), \\((2)(2)=4\\) -- minimum \\(-2\\), maximum \\(4\\), giving \\([-2,4]\\). That's WRONG: no real number squares to a negative value, so \\(-2\\) can never actually occur, yet the naive independent-copies approach includes it.",
+      "why": "This is the \"dependency problem\" from the README made concrete: \\(x \\times x\\) is NOT the same computation as \\([a,b]\\times[c,d]\\) for two independent intervals, even when \\([a,b]\\) and \\([c,d]\\) happen to be the identical interval -- `iv_pow_i64`'s dedicated closed-form logic exists specifically to give the TIGHT, correct answer \\([0,4]\\) instead of naive multiplication's overly-wide (though still technically valid, just not optimal) \\([-2,4]\\)."
+    },
+    "iv_atan": {
+      "intuition": "Same monotonic-endpoints shortcut as `iv_sqrt`/`iv_exp`/`iv_log` -- arctangent increases everywhere, no exceptions, so no case-split is ever needed (unlike `iv_sin`/`iv_cos`, which turn around within any interval wider than half a period).",
+      "formula": "\\[ \\arctan([a,b]) = [\\arctan a,\\arctan b] \\]",
+      "example": "\\(\\arctan([0,1]) = [\\arctan0,\\arctan1] = [0,\\ \\pi/4] \\approx [0,\\,0.785]\\).",
+      "why": "Being monotonic EVERYWHERE (not just on some restricted domain, unlike `iv_sqrt`/`iv_log`, which need non-negative/positive inputs) means `iv_atan` never needs a domain restriction at all -- it accepts any interval, including ones spanning from very negative to very positive."
+    },
+    "iv_sinh": {
+      "intuition": "Same monotonic shortcut again -- unlike ordinary sine, hyperbolic sine increases everywhere with no turning points at all.",
+      "formula": "\\[ \\sinh([a,b]) = [\\sinh a,\\sinh b] \\]",
+      "example": "\\(\\sinh([0,1]) = [\\sinh0,\\sinh1] = [0,\\ 1.175]\\).",
+      "why": "This is exactly why `iv_sinh`/`iv_tanh` are safe with the simple endpoints-only shortcut while `iv_sin`/`iv_cos` are NOT (they need a more careful case-split, handled by this package's `_iv_trig_range` helper) -- monotonicity is the one property that makes the shortcut valid, and the hyperbolic functions have it globally while the circular ones don't."
+    },
+    "iv_tanh": {
+      "intuition": "Same monotonic shortcut, for hyperbolic tangent.",
+      "formula": "\\[ \\tanh([a,b]) = [\\tanh a,\\tanh b] \\]",
+      "example": "\\(\\tanh([0,1]) = [\\tanh0,\\tanh1] = [0,\\ 0.762]\\).",
+      "why": "Notice \\(\\tanh\\)'s output here stays comfortably within \\((-1,1)\\) even as the input grows -- \\(\\tanh\\) is bounded (approaching but never reaching \\(\\pm1\\)), a useful property when you specifically want a squashing function whose enclosure can never blow up regardless of how wide the input interval is."
+    },
+    "iv_width": {
+      "intuition": "How \"loose\" or uncertain an enclosure is -- a width of 0 would mean the exact value is known precisely; a wide interval means the true value could be almost anywhere within it.",
+      "formula": "\\[ b-a \\quad \\text{for } [a,b] \\]",
+      "example": "\\(\\text{width}([2,4]) = 4-2 = 2\\).",
+      "why": "`iv_bisect_root` (see the README) uses this directly as its stopping criterion -- it keeps splitting candidate brackets in half until every surviving one's width drops below the caller's tolerance, at which point the root is known to that precision."
+    },
+    "iv_midpoint": {
+      "intuition": "The single \"best guess\" point inside an interval, if you had to pick just one number to represent the whole range.",
+      "formula": "\\[ (a+b)/2 \\quad \\text{for } [a,b] \\]",
+      "example": "\\(\\text{midpoint}([2,4]) = (2+4)/2 = 3\\).",
+      "why": "A natural point to evaluate a function at when you want a representative \"typical\" value from an interval, distinct from the interval's endpoints -- e.g. as a starting guess for a root-finder working within a known bracket."
+    },
+    "iv_intersect": {
+      "intuition": "The overlap between two ranges -- take whichever lower bound is HIGHER (that's where the overlap starts) and whichever upper bound is LOWER (that's where it ends).",
+      "formula": "\\[ [a,b]\\cap[c,d] = [\\max(a,c),\\ \\min(b,d)] \\]",
+      "example": "\\([2,4]\\cap[3,6] = [\\max(2,3),\\ \\min(4,6)] = [3,4]\\) -- the region both intervals agree is possible.",
+      "why": "If the intervals don't overlap at all (e.g. \\([2,4]\\cap[6,8]\\), where \\(\\max(2,6)=6 > \\min(4,8)=4\\)), this formula produces a \"backwards\" interval with lower bound exceeding upper bound -- exactly the signal `iv_is_empty` checks for to detect a genuinely empty intersection."
+    },
+    "iv_union_hull": {
+      "intuition": "The smallest single interval that contains BOTH given intervals entirely -- like drawing the tightest possible box around two separate ranges, even if there's a gap between them that neither original interval actually covered.",
+      "formula": "\\[ [\\min(a,c),\\ \\max(b,d)] \\]",
+      "example": "\\([2,4]\\) hull-unioned with \\([6,8]\\) (note: these DON'T overlap, there's a gap from 4 to 6): \\([\\min(2,6),\\ \\max(4,8)] = [2,8]\\) -- which includes the entire gap region \\((4,6)\\), even though neither original interval touched it.",
+      "why": "This is deliberately NOT the same as a set union (which would correctly exclude the gap) -- interval arithmetic can only work with a single contiguous range, so \"smallest enclosing interval\" is the best a single-interval representation can do. If you need to track the gap explicitly, you'd need a more complex representation than this package provides (a list of disjoint intervals, which `iv_bisect_root`'s candidate list is a limited example of)."
+    },
+    "ep_propagate_1var": {
+      "intuition": "If you nudge \\(x\\) by a small amount \\(\\sigma_x\\), how much does \\(f(x)\\) move? Approximately by the SLOPE at that point times the nudge -- a steep slope amplifies the uncertainty, a shallow slope damps it.",
+      "formula": "\\[ \\sigma_f \\approx \\left|\\dfrac{df}{dx}\\right|\\sigma_x \\]",
+      "example": "For \\(f(x)=x^2\\) at \\(x=3\\) with measurement uncertainty \\(\\sigma_x=0.1\\): \\(df/dx=2x=6\\) at this point, so \\(\\sigma_f \\approx |6|\\times0.1 = 0.6\\) -- a small \\(\\pm0.1\\) uncertainty in \\(x\\) becomes roughly \\(\\pm0.6\\) uncertainty in \\(x^2\\), amplified by the slope.",
+      "why": "The derivative here is estimated via central differences (reusing [vani-calculus](https://github.com/enthusiasticgeek/vani-calculus)'s `diff_central`), not computed symbolically -- so this works for ANY `fn(f64)->f64`, not just ones you could differentiate by hand."
+    },
+    "ep_propagate_independent": {
+      "intuition": "When several independent measurements each carry their own uncertainty, their combined effect on a result doesn't simply ADD -- it combines \"in quadrature\" (square each contribution, add, then take the square root), the same way the diagonal of a rectangle is shorter than the sum of its two sides.",
+      "formula": "\\[ \\sigma_f \\approx \\sqrt{\\sum_{i=1}^n\\left(\\dfrac{\\partial f}{\\partial x_i}\\right)^2\\sigma_{x_i}^2} \\]",
+      "example": "For \\(f(x,y)=xy\\) at \\(x=3,y=4\\) with \\(\\sigma_x=0.1,\\sigma_y=0.2\\): \\(\\partial f/\\partial x=y=4\\), \\(\\partial f/\\partial y=x=3\\). \\(\\sigma_f \\approx \\sqrt{(4\\times0.1)^2+(3\\times0.2)^2} = \\sqrt{0.16+0.36}=\\sqrt{0.52}\\approx0.721\\).",
+      "why": "This general formula's answer (\\(0.721\\)) should exactly match `ep_product2`'s closed-form shortcut for the SAME \\(f(x,y)=xy\\) problem -- see `ep_product2`'s own worked example, which reaches the identical \\(0.721\\) via a completely different-looking formula, a useful cross-check that the two are consistent."
+    },
+    "ep_propagate_covariance": {
+      "intuition": "The independent-inputs formula above assumes each measurement's error is completely unrelated to the others' -- but real measurements are sometimes CORRELATED (e.g. two quantities both measured with the same slightly-miscalibrated instrument). This fuller formula accounts for that by including cross-terms for every PAIR of variables, not just each variable with itself.",
+      "formula": "\\[ \\sigma_f^2 \\approx \\sum_{i=1}^n\\sum_{j=1}^n \\dfrac{\\partial f}{\\partial x_i}\\dfrac{\\partial f}{\\partial x_j}\\,\\Sigma_{ij} \\]",
+      "example": "Reusing `ep_propagate_independent`'s \\(f(x,y)=xy\\) example with UNCORRELATED errors (covariance matrix \\(\\Sigma=\\begin{pmatrix}0.01&0\\\\0&0.04\\end{pmatrix}\\), i.e. \\(\\sigma_x^2=0.01,\\sigma_y^2=0.04\\), zero off-diagonal): the cross-terms (\\(i\\ne j\\)) vanish since \\(\\Sigma_{12}=\\Sigma_{21}=0\\), leaving only the diagonal terms -- exactly `ep_propagate_independent`'s formula, giving the same \\(\\sigma_f\\approx0.721\\).",
+      "why": "This is stated directly in the function's own description: the covariance formula reduces EXACTLY to the independent formula when \\(\\Sigma\\) is diagonal. The extra generality only matters when there's a genuine nonzero off-diagonal term -- e.g. if \\(x\\) and \\(y\\) tend to be measured too high or too low TOGETHER (positive correlation), the combined uncertainty can come out larger or smaller than the independent formula predicts, depending on the SIGN of the correlation and the signs of the partial derivatives."
+    },
+    "ep_sum2": {
+      "intuition": "The special case of `ep_propagate_independent` for simple addition -- since \\(\\partial(a+b)/\\partial a=1\\) and \\(\\partial(a+b)/\\partial b=1\\) always, the general formula simplifies down to just combining the two uncertainties in quadrature directly, no partial-derivative computation needed at all.",
+      "formula": "\\[ \\sigma_{a+b} = \\sqrt{\\sigma_a^2+\\sigma_b^2} \\]",
+      "example": "With \\(\\sigma_a=0.1,\\sigma_b=0.2\\): \\(\\sigma_{a+b} = \\sqrt{0.01+0.04}=\\sqrt{0.05}\\approx0.2236\\) -- notice this is LESS than the naive \\(0.1+0.2=0.3\\) you might guess by just adding the uncertainties directly; quadrature combination is always \\(\\le\\) the plain sum.",
+      "why": "This gap between \\(0.2236\\) (correct) and \\(0.3\\) (naive sum) is the whole point of \"adding in quadrature\" -- it's very unlikely that BOTH measurement errors are simultaneously at their worst in the same direction, so the true combined uncertainty is smaller than the worst-case sum would suggest."
+    },
+    "ep_sum_n": {
+      "intuition": "The same quadrature-combination idea as `ep_sum2`, extended to summing any number of independent terms at once.",
+      "formula": "\\[ \\sigma_{\\sum x_i} = \\sqrt{\\sum_i \\sigma_{x_i}^2} \\]",
+      "example": "For three independent measurements with \\(\\sigma_1=0.1,\\sigma_2=0.2,\\sigma_3=0.3\\): \\(\\sigma_{\\text{sum}} = \\sqrt{0.01+0.04+0.09} = \\sqrt{0.14} \\approx 0.374\\) -- again well under the naive sum \\(0.1+0.2+0.3=0.6\\).",
+      "why": "The gap between quadrature-combination and naive summation WIDENS as more terms are added -- with many independent measurements, the combined relative uncertainty grows much more slowly than a naive \"just add up all the error bars\" approach would suggest, which is part of why averaging many independent measurements is such an effective way to reduce uncertainty."
+    },
+    "ep_product2": {
+      "intuition": "For a product, it's RELATIVE errors (the uncertainty as a fraction of the value, \\(\\sigma_a/a\\)) that combine in quadrature, not absolute errors -- makes sense dimensionally: a product's absolute uncertainty has to scale with the product's own size.",
+      "formula": "\\[ \\sigma_{ab} \\approx |ab|\\sqrt{\\left(\\sigma_a/a\\right)^2+\\left(\\sigma_b/b\\right)^2} \\]",
+      "example": "For \\(a=3,\\sigma_a=0.1\\) and \\(b=4,\\sigma_b=0.2\\): \\(|ab|=12\\), relative errors \\(\\sigma_a/a=0.1/3\\approx0.0333\\) and \\(\\sigma_b/b=0.2/4=0.05\\). \\(\\sigma_{ab} \\approx 12\\sqrt{0.0333^2+0.05^2} = 12\\sqrt{0.00111+0.0025}=12\\sqrt{0.00361}\\approx12\\times0.0601\\approx0.721\\) -- matching `ep_propagate_independent`'s general-formula answer for the identical \\(f(x,y)=xy\\) problem exactly.",
+      "why": "Both routes agreeing (\\(0.721\\) either way) confirms this closed-form shortcut is really just the SAME underlying math as the general multivariate formula, specialized algebraically to the one common case of a plain product -- worth having as a shortcut specifically because it avoids needing finite-difference derivative estimation at all for this common shape."
+    },
+    "ep_quotient2": {
+      "intuition": "Same relative-errors-in-quadrature idea as `ep_product2` -- division's partial derivatives have the same relative-error STRUCTURE as multiplication's, just with a different overall scale.",
+      "formula": "\\[ \\sigma_{a/b} \\approx |a/b|\\sqrt{\\left(\\sigma_a/a\\right)^2+\\left(\\sigma_b/b\\right)^2} \\]",
+      "example": "Reusing \\(a=3,\\sigma_a=0.1,b=4,\\sigma_b=0.2\\): \\(|a/b|=0.75\\), same relative errors as `ep_product2`'s example (\\(0.0333\\) and \\(0.05\\)). \\(\\sigma_{a/b} \\approx 0.75\\sqrt{0.00111+0.0025} \\approx 0.75\\times0.0601\\approx0.0451\\).",
+      "why": "Notice the relative-error term inside the square root, \\(\\sqrt{(\\sigma_a/a)^2+(\\sigma_b/b)^2}\\approx0.0601\\), is IDENTICAL between this and `ep_product2`'s example -- only the overall scale factor out front differs (\\(|ab|=12\\) for the product vs. \\(|a/b|=0.75\\) for the quotient), because multiplying and dividing by the same relative amount of uncertainty has the same relative EFFECT, just scaled differently by the operation's own result size."
+    }
   }
 }
