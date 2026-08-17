@@ -15,6 +15,8 @@ N3 breakdown):
   [vani-calculus](https://github.com/enthusiasticgeek/vani-calculus)'s
   `diff_central` for the single-variable case.
 
+**API reference / tutorial:** <https://enthusiasticgeek.github.io/vani-interval/>
+
 ## Add to your project
 
 ```toml
