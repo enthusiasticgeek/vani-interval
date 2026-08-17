@@ -1,7 +1,7 @@
 # vani-interval
 
 Rigorous interval arithmetic and first-order error propagation for the
-[vāṇी compiler](https://github.com/enthusiasticgeek/vani-compiler) —
+[vāṇī compiler](https://github.com/enthusiasticgeek/vani-compiler) —
 kosh-index roadmap item N3.
 
 Two distinct techniques share this package (per `kosh-index/ROADMAP.md`'s
@@ -81,7 +81,7 @@ more than one for functions with multiple real roots in the bracket.
 ## Error propagation: `_ep_grad_fd`
 
 `ep_propagate_independent`/`ep_propagate_covariance` need the gradient of
-a multivariate `f`. vāṇी has no closures, so multivariate function
+a multivariate `f`. vāṇī has no closures, so multivariate function
 pointers follow vani-optimize's established `fn(ref Vec<f64>, i64) -> f64`
 convention. `_ep_grad_fd` (package-private) computes that gradient via
 central differences — a few lines, not worth a hard dependency on
@@ -108,7 +108,7 @@ together rather than testing them in isolation:
 
 ## What this library does NOT provide
 
-These are already vāṇी compiler builtins — call them directly, no import needed:
+These are already vāṇī compiler builtins — call them directly, no import needed:
 
 `sin` `cos` `sqrt` `exp` `log` `abs` `floor` `ceil` `f64_pi()` `push` `pop` `len` `set` `vec`
 

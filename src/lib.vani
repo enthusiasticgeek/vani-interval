@@ -15,7 +15,7 @@
 //     actually asks for day to day. Not rigorous, but reuses vani-calculus's
 //     diff_central for the single-variable case.
 //
-// IMPORTANT — do NOT reimplement vāṇी compiler builtins.
+// IMPORTANT — do NOT reimplement vāṇī compiler builtins.
 // Already available as builtins (call directly, never redeclare here):
 //   sin cos tan atan sinh cosh tanh sqrt exp log abs floor ceil  f64_pi()
 //   push pop len set vec
